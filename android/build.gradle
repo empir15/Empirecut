@@ -19,3 +19,11 @@ buildscript {
 }
 
 apply plugin: "com.facebook.react.rootproject"
+
+subprojects {
+    configurations.configureEach {
+        resolutionStrategy.dependencySubstitution {
+            substitute module("com.arthenica:ffmpeg-kit-https") using module("com.mrljdx:ffmpeg-kit-full:6.1.4")
+        }
+    }
+}
