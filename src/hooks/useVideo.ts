@@ -9,6 +9,7 @@ import { useUIStore } from '../store/ui.store';
 import type { VideoMetadata } from '../types/video.types';
 import { launchImageLibrary } from 'react-native-image-picker';
 import RNFS from 'react-native-fs';
+import { ffmpegService } from '../ffmpeg/ffmpeg.service';
 
 const sanitizeFilename = (filename: string): string =>
   filename.replace(/[^a-zA-Z0-9._-]/g, '_');
@@ -58,14 +59,46 @@ export const useVideo = () => {
       const asset = result.assets[0];
       const filename = asset.fileName ?? 'video.mp4';
       const readableUri = await ensureFFmpegReadableUri(asset.uri ?? '', filename);
+
+      let durationSec = asset.duration ?? 0;
+      let width = asset.width ?? 0;
+      let height = asset.height ?? 0;
+
+      try {
+        const mediaInfo = await ffmpegService.getMediaInfo(readableUri);
+        if (mediaInfo) {
+          if (mediaInfo.duration) {
+            durationSec = parseFloat(mediaInfo.duration);
+          }
+          const streams = mediaInfo.streams;
+          if (Array.isArray(streams)) {
+            const videoStream = streams.find((s: any) => s.codec_type === 'video');
+            if (videoStream) {
+              if (videoStream.width) width = parseInt(videoStream.width, 10);
+              if (videoStream.height) height = parseInt(videoStream.height, 10);
+              if (videoStream.duration && !durationSec) {
+                durationSec = parseFloat(videoStream.duration);
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[useVideo] FFprobe getMediaInfo failed:', err);
+      }
+
+      // Sécurité si aucune durée n'est détectée
+      if (durationSec <= 0) {
+        durationSec = 10;
+      }
+
       const metadata: VideoMetadata = {
         uri: readableUri,
         filename,
         format: (filename.split('.').pop() ?? 'mp4') as any,
-        durationMs: (asset.duration ?? 0) * 1000,
-        durationSec: asset.duration ?? 0,
-        width: asset.width ?? 0,
-        height: asset.height ?? 0,
+        durationMs: durationSec * 1000,
+        durationSec: durationSec,
+        width: width || 1280,
+        height: height || 720,
         fileSizeMB: (asset.fileSize ?? 0) / (1024 * 1024),
         hasAudio: true,
       };

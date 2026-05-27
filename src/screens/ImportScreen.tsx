@@ -76,7 +76,7 @@ const ImportScreen: React.FC = () => {
           <Text style={styles.closeIcon}>✕</Text>
         </TouchableOpacity>
         <Text style={styles.title}>Importer une vidéo</Text>
-        <View style={{ width: 36 }} />
+        <View style={styles.headerSpacer} />
       </View>
 
       {/* Content */}
@@ -132,6 +132,9 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing[6],
     borderBottomWidth: 1,
     borderBottomColor: Colors.border.subtle,
+  },
+  headerSpacer: {
+    width: 36,
   },
   closeBtn: {
     width: 36, height: 36,

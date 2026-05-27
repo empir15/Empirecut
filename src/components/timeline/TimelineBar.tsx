@@ -21,7 +21,7 @@ import {
 } from 'react-native';
 import { useEditorStore } from '../../store/editor.store';
 import { useTimeline } from '../../hooks/useTimeline';
-import { Colors, Spacing, FontSize, BorderRadius } from '../../theme';
+import { Colors, Spacing, BorderRadius } from '../../theme';
 import { formatSeconds } from '../../utils/time.utils';
 import TimelineThumbnail from './TimelineThumbnail';
 import { TIMELINE_CONFIG, VIDEO_CONFIG } from '../../constants/app.constants';
@@ -42,7 +42,7 @@ export const TimelineBar: React.FC = () => {
     selectedOverlayId,
     setSelectedOverlay,
   } = useEditorStore();
-  const { layout, zoom, playheadX, handleSeek } = useTimeline();
+  const { layout, zoom, playheadX } = useTimeline();
 
   const scrollViewRef = useRef<ScrollView>(null);
   const [viewportWidth, setViewportWidth] = useState(SCREEN_WIDTH);
@@ -182,7 +182,7 @@ export const TimelineBar: React.FC = () => {
 
           {/* Piste des clips vidéo */}
           <View style={styles.clipsTrack}>
-            {layout.clips.map((clipLayout, index) => {
+            {layout.clips.map((clipLayout) => {
               const clip = clips.find((c) => c.id === clipLayout.clipId);
               if (!clip) return null;
 
@@ -190,7 +190,6 @@ export const TimelineBar: React.FC = () => {
               
               // Déterminer combien de vignettes on peut faire rentrer dans le clip
               const numThumbnails = Math.max(1, Math.ceil(clipLayout.width / THUMBNAIL_WIDTH));
-              const thumbInterval = clipLayout.durationSec / numThumbnails;
 
               return (
                 <TouchableOpacity

@@ -17,14 +17,11 @@ import { Colors, Spacing, FontSize, BorderRadius, Shadow } from '../theme';
 import type { EditorScreenProps, RootStackParamList } from '../navigation/types';
 import { useEditorStore } from '../store/editor.store';
 import { useAuthStore } from '../store/auth.store';
-import { useProject } from '../hooks/useProject';
 import * as db from '../supabase/database';
 import { loadProjectFromCloud, syncProjectToCloud } from '../supabase/projectSync.service';
 import { ensureClipCached } from '../supabase/cloudCache.service';
 import VideoPlayer from '../components/video/VideoPlayer';
 import TimelineBar from '../components/timeline/TimelineBar';
-import type { Clip } from '../types/video.types';
-import type { ClipRow } from '../types/supabase.types';
 import type { EditorTool, TextOverlay } from '../types/editor.types';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'Editor'>;
@@ -58,6 +55,7 @@ const EditorScreen: React.FC<EditorScreenProps> = ({ route }) => {
     musicTrack,
     setMusicTrack,
     currentTimeMs,
+    setCurrentTime,
     isDirty,
     markClean,
   } = useEditorStore();
@@ -136,13 +134,11 @@ const EditorScreen: React.FC<EditorScreenProps> = ({ route }) => {
 
           // Restaurer les overlays texte sauvegardés
           if (projectData.textOverlays.length > 0) {
-            const { addTextOverlay } = useEditorStore.getState();
             projectData.textOverlays.forEach((overlay) => addTextOverlay(overlay));
           }
 
           // Restaurer la piste musicale sauvegardée
           if (projectData.musicTrack) {
-            const { setMusicTrack } = useEditorStore.getState();
             setMusicTrack(projectData.musicTrack);
           }
 
@@ -168,7 +164,7 @@ const EditorScreen: React.FC<EditorScreenProps> = ({ route }) => {
     return () => {
       resetEditor();
     };
-  }, [projectId, initEditor, resetEditor, setSelectedClip]);
+  }, [projectId, initEditor, resetEditor, setSelectedClip, addTextOverlay, setMusicTrack]);
 
   const handleBack = () => {
     navigation.goBack();
@@ -202,6 +198,14 @@ const EditorScreen: React.FC<EditorScreenProps> = ({ route }) => {
       c.id === selectedClipId ? { ...c, trimStart: newStart } : c
     );
     setClips(updatedClips);
+
+    // Seek le player sur le début du trim pour un retour visuel
+    let elapsedBefore = 0;
+    for (const c of clips) {
+      if (c.id === selectedClipId) break;
+      elapsedBefore += (c.trimEnd - c.trimStart);
+    }
+    setCurrentTime(elapsedBefore * 1000);
   };
 
   const handleTrimEndChange = (value: number) => {
@@ -213,6 +217,15 @@ const EditorScreen: React.FC<EditorScreenProps> = ({ route }) => {
       c.id === selectedClipId ? { ...c, trimEnd: newEnd } : c
     );
     setClips(updatedClips);
+
+    // Seek le player sur la fin du trim pour un retour visuel
+    let elapsedBefore = 0;
+    for (const c of clips) {
+      if (c.id === selectedClipId) break;
+      elapsedBefore += (c.trimEnd - c.trimStart);
+    }
+    const offset = newEnd - selectedClip.trimStart;
+    setCurrentTime((elapsedBefore + offset) * 1000);
   };
 
   const getSelectedOverlay = useCallback(() => {

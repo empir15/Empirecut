@@ -14,15 +14,12 @@ import {
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
-  Dimensions,
 } from 'react-native';
 import Video, { VideoRef } from 'react-native-video';
 import { useEditorStore } from '../../store/editor.store';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../theme';
 import { formatSeconds } from '../../utils/time.utils';
 import type { Clip } from '../../types/video.types';
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 // Traduit le temps absolu de la timeline en clip et temps relatif
 export const getPlaybackState = (
@@ -69,7 +66,6 @@ export const VideoPlayer: React.FC = () => {
 
   const videoRef = useRef<VideoRef>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [duration, setDuration] = useState(0); // Durée totale du clip chargé
   
   // Trackers de seek pour éviter les boucles d'update infinies
   const isSeeking = useRef(false);
@@ -128,8 +124,7 @@ export const VideoPlayer: React.FC = () => {
     }
   };
 
-  const handleVideoLoad = (data: { duration: number }) => {
-    setDuration(data.duration);
+  const handleVideoLoad = () => {
     setIsLoading(false);
     
     // Positionner au bon endroit au chargement

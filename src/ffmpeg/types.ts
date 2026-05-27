@@ -73,7 +73,20 @@ export interface ExportParams {
   trimEnd?: number;
   audioPath?: string;
   audioVolume?: number;
+  hasAudio?: boolean;
   quality: 'low' | 'medium' | 'high';
   resolution: '480p' | '720p' | '1080p';
   frameRate: number;
+  textOverlays?: Array<{
+    text: string;
+    start: number; // secondes
+    end: number; // secondes
+    positionX: number; // 0.0 -> 1.0
+    positionY: number; // 0.0 -> 1.0
+    style?: {
+      fontSize?: number;
+      color?: string;
+    };
+  }>;
 }
+

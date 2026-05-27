@@ -49,6 +49,7 @@ export const AppNavigator: React.FC = () => (
       headerShown: false,
       tabBarShowLabel: false,
       tabBarStyle: styles.tabBar,
+      // eslint-disable-next-line react/no-unstable-nested-components
       tabBarIcon: ({ focused }) => (
         <TabIcon routeName={route.name} focused={focused} />
       ),

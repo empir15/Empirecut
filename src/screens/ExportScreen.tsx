@@ -17,7 +17,6 @@ import {
   StatusBar,
   ActivityIndicator,
   Share,
-  Dimensions,
   Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -39,7 +38,6 @@ import { formatSeconds } from '../utils/time.utils';
 import type { ExportQuality, ExportResolution } from '../types/video.types';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'Export'>;
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 const sanitizeFilename = (filename: string): string =>
   filename.replace(/[^a-zA-Z0-9._-]/g, '_');
@@ -61,7 +59,7 @@ export const ExportScreen: React.FC<ExportScreenProps> = () => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NavigationProp>();
   const { showToast } = useUIStore();
-  const { clips, exportSettings, setExportSettings, musicTrack } = useEditorStore();
+  const { clips, exportSettings, setExportSettings, musicTrack, textOverlays } = useEditorStore();
 
   const [isExporting, setIsExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState(0);
@@ -109,6 +107,16 @@ export const ExportScreen: React.FC<ExportScreenProps> = () => {
         const clip = clips[0];
         const exportMusicTrack = getExportableMusicTrack();
         const inputPath = await prepareFFmpegInput(clip.uri, `${clip.id}.mp4`);
+        // Préparer les overlays pour l'export (uniquement pour export single-clip)
+        const exportOverlays = textOverlays?.map((o) => ({
+          text: o.text,
+          start: o.startTime,
+          end: o.endTime,
+          positionX: o.positionX,
+          positionY: o.positionY,
+          style: { fontSize: o.style.fontSize, color: o.style.color },
+        }));
+
         const command = buildExportCommand({
           inputPath,
           outputPath: finalPath,
@@ -119,6 +127,8 @@ export const ExportScreen: React.FC<ExportScreenProps> = () => {
           frameRate: exportSettings.frameRate,
           audioPath: exportMusicTrack ? exportMusicTrack.uri : undefined,
           audioVolume: exportMusicTrack ? exportMusicTrack.volume : undefined,
+          hasAudio: clip.metadata.hasAudio,
+          textOverlays: exportOverlays,
         });
 
         const durationMs = (clip.trimEnd - clip.trimStart) * 1000;
@@ -158,8 +168,8 @@ export const ExportScreen: React.FC<ExportScreenProps> = () => {
           const res = await ffmpegService.execute(
             trimCommand,
             (prog) => {
-              // Progression proportionnelle à l'étape en cours
-              const clipShare = 100 / (numClips + 1);
+              // Progression proportionnelle à l'étape en cours (80% du total pour les trims individuels)
+              const clipShare = 80 / (numClips + 1);
               const progressBase = i * clipShare;
               const stepProgress = (prog.percentage / 100) * clipShare;
               setExportProgress(Math.round(progressBase + stepProgress));
@@ -182,18 +192,73 @@ export const ExportScreen: React.FC<ExportScreenProps> = () => {
         
         await RNFS.writeFile(listFilePath, listContent, 'utf8');
 
-        const mergeCommand = buildMergeCommand(listFilePath, finalPath);
+        // On fusionne vers un fichier temporaire intermédiaire
+        const tempMergedPath = `${RNFS.DocumentDirectoryPath}/temp_merged_${Date.now()}.mp4`;
+        const mergeCommand = buildMergeCommand(listFilePath, tempMergedPath);
         
         // Lancer la fusion (rapide car sans réencodage)
         const mergeRes = await ffmpegService.execute(mergeCommand);
         
-        // Nettoyer les fichiers temporaires
+        // Nettoyer le fichier de liste et les clips individuels
         await RNFS.unlink(listFilePath).catch(() => {});
         for (const tempPath of tempClipsPaths) {
           await RNFS.unlink(tempPath).catch(() => {});
         }
 
         if (!mergeRes.success) throw new Error(mergeRes.error || 'Erreur lors de la fusion');
+        setExportProgress(85);
+
+        // Étape 3 : Appliquer les overlays et la musique de fond sur la vidéo fusionnée
+        const hasOverlays = textOverlays && textOverlays.length > 0;
+        const exportMusicTrack = getExportableMusicTrack();
+        const hasMusic = !!exportMusicTrack;
+
+        if (hasOverlays || hasMusic) {
+          setCurrentStep('Ajout des effets et de la musique...');
+          
+          const exportOverlays = textOverlays?.map((o) => ({
+            text: o.text,
+            start: o.startTime,
+            end: o.endTime,
+            positionX: o.positionX,
+            positionY: o.positionY,
+            style: { fontSize: o.style.fontSize, color: o.style.color },
+          }));
+
+          const mergedHasAudio = clips.some((c) => c.metadata.hasAudio);
+
+          const finalCommand = buildExportCommand({
+            inputPath: tempMergedPath,
+            outputPath: finalPath,
+            quality: exportSettings.quality,
+            resolution: exportSettings.resolution,
+            frameRate: exportSettings.frameRate,
+            audioPath: exportMusicTrack ? exportMusicTrack.uri : undefined,
+            audioVolume: exportMusicTrack ? exportMusicTrack.volume : undefined,
+            hasAudio: mergedHasAudio,
+            textOverlays: exportOverlays,
+          });
+
+          const finalDurationMs = totalDurationSec * 1000;
+          const finalRes = await ffmpegService.execute(
+            finalCommand,
+            (prog) => {
+              // Reste de la progression (de 85% à 99%)
+              const stepProgress = (prog.percentage / 100) * 14;
+              setExportProgress(Math.min(99, Math.round(85 + stepProgress)));
+            },
+            finalDurationMs
+          );
+
+          // Nettoyer la vidéo fusionnée temporaire
+          await RNFS.unlink(tempMergedPath).catch(() => {});
+
+          if (!finalRes.success) throw new Error(finalRes.error || 'Erreur lors de la finalisation');
+        } else {
+          // Aucun effet/musique, on déplace le fichier fusionné directement vers la destination finale
+          await RNFS.moveFile(tempMergedPath, finalPath);
+        }
+
         setExportProgress(100);
       }
 
@@ -239,7 +304,7 @@ export const ExportScreen: React.FC<ExportScreenProps> = () => {
         title: 'Ma vidéo EmpireCut',
         message: 'Regarde le montage que je viens de faire avec EmpireCut ! 🎬',
       });
-    } catch (error) {
+    } catch {
       showToast('Erreur de partage', 'error');
     }
   };
@@ -262,7 +327,7 @@ export const ExportScreen: React.FC<ExportScreenProps> = () => {
           <Text style={styles.closeIcon}>✕</Text>
         </TouchableOpacity>
         <Text style={styles.title}>Exportation</Text>
-        <View style={{ width: 36 }} />
+        <View style={styles.headerSpacer} />
       </View>
 
       {!exportedVideoPath ? (
@@ -418,6 +483,9 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing[6],
     borderBottomWidth: 1,
     borderBottomColor: Colors.border.subtle,
+  },
+  headerSpacer: {
+    width: 36,
   },
   closeBtn: {
     width: 36,

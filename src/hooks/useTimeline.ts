@@ -17,6 +17,7 @@ export const useTimeline = () => {
   // Recalcul du layout quand les clips ou le zoom changent
   const layout: TimelineLayout = useMemo(
     () => timelineEngine.computeLayout(clips),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [clips, zoom],
   );
 

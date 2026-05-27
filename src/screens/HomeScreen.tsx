@@ -8,7 +8,7 @@
  * - Pull-to-refresh
  * - Skeleton de chargement animé
  */
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -17,7 +17,6 @@ import {
   TouchableOpacity,
   StatusBar,
   Image,
-  ActivityIndicator,
   RefreshControl,
   Alert,
   Animated,
@@ -128,11 +127,13 @@ const AnimatedProjectCard: React.FC<AnimatedProjectCardProps> = ({
 
   return (
     <Animated.View
-      style={{
-        flex: 1,
-        opacity: fadeAnim,
-        transform: [{ scale: scaleAnim }],
-      }}
+      style={[
+        styles.cardContainer,
+        {
+          opacity: fadeAnim,
+          transform: [{ scale: scaleAnim }],
+        },
+      ]}
     >
       <TouchableOpacity
         style={styles.projectCard}
@@ -340,6 +341,7 @@ const HomeScreen: React.FC = () => {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background.primary },
+  cardContainer: { flex: 1 },
 
   // Header
   header: {

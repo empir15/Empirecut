@@ -9,13 +9,31 @@ import {
 
 type ProgressCallback = (progress: FFmpegProgress) => void;
 
-const getLogTail = (logs: string, maxLength = 1200): string => {
-  const cleanLogs = logs.trim();
-  if (cleanLogs.length <= maxLength) {
-    return cleanLogs;
+// En cas d'échec, l'erreur utile est au DÉBUT des logs (après la config de build).
+// On cherche la ligne commençant par "Error" ou "Invalid" dans les 3000 premiers chars.
+const extractUsefulError = (logs: string, maxLength = 1200): string => {
+  const clean = logs.trim();
+
+  // Chercher la première ligne d'erreur significative
+  const lines = clean.split('\n');
+  const errorLine = lines.find(
+    (l) =>
+      l.includes('Error') ||
+      l.includes('Invalid') ||
+      l.includes('No such file') ||
+      l.includes('Permission denied') ||
+      l.includes('moov atom not found') ||
+      l.includes('codec not found'),
+  );
+
+  if (errorLine) {
+    return errorLine.trim();
   }
 
-  return cleanLogs.slice(cleanLogs.length - maxLength);
+  // Fallback : retourner la fin des logs
+  return clean.length <= maxLength
+    ? clean
+    : clean.slice(clean.length - maxLength);
 };
 
 class FFmpegService {
@@ -74,7 +92,7 @@ class FFmpegService {
 
       const success = ReturnCode.isSuccess(returnCode);
       this.activeSessionId = null;
-      const logTail = getLogTail(logs);
+      const logTail = extractUsefulError(logs);
       const failureMessage = logTail
         ? `FFmpeg failed with return code ${returnCode.getValue()}: ${logTail}`
         : `FFmpeg failed with return code ${returnCode.getValue()}`;

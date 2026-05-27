@@ -8,7 +8,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, StyleSheet, Animated, Image } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
-import { Colors, BorderRadius } from '../../theme';
+import { Colors } from '../../theme';
 
 interface TimelineThumbnailProps {
   uri?: string;

@@ -24,6 +24,16 @@ module.exports = {
         },
       },
     ],
+    // Variables d'environnement — permet d'importer via 'import { X } from "@env"'
+    [
+      'module:react-native-dotenv',
+      {
+        moduleName: '@env',
+        path: '.env',
+        safe: false,
+        allowUndefined: false,
+      },
+    ],
     // IMPORTANT: react-native-reanimated/plugin DOIT être en dernier
     'react-native-reanimated/plugin',
   ],

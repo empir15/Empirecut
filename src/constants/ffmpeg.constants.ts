@@ -4,9 +4,12 @@
  */
 
 // Codec vidéo
+// ⚠️ Sur Android mobile, utiliser h264_mediacodec (encodeur matériel)
+// libx264 (logiciel) provoque des OOM Kill sur les appareils à mémoire limitée
 export const VIDEO_CODEC = {
-  H264: 'libopenh264',
-  H265: 'libx265',
+  H264: 'h264_mediacodec',   // Encodeur matériel Android — rapide & léger
+  H264_SW: 'libx264',        // Encodeur logiciel — garder en fallback
+  H265: 'hevc_mediacodec',   // Encodeur matériel H265
   COPY: 'copy',
 } as const;
 
@@ -54,7 +57,7 @@ export const FFMPEG_FLAGS = {
   COPY_ALL: '-c copy',                       // copy streams sans réencodage
   FAST_START: '-movflags +faststart',        // optimise MP4 pour streaming
   PIXEL_FORMAT: '-pix_fmt yuv420p',          // compatibilité max (iOS/Android)
-  THREADS: '-threads 0',                     // utilise tous les cœurs CPU
+  THREADS: '-threads 2',                     // ⚠️ limiter à 2 threads pour éviter l'OOM Kill sur mobile
 } as const;
 
 // Timeout FFmpeg (ms) avant d'annuler une session

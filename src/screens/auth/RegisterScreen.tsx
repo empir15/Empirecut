@@ -253,6 +253,7 @@ const RegisterScreen: React.FC<RegisterScreenProps> = ({ navigation }) => {
                     <View
                       style={[
                         styles.strengthFill,
+                        // eslint-disable-next-line react-native/no-inline-styles
                         {
                           width: pwdStrength === 'weak' ? '33%' : pwdStrength === 'medium' ? '66%' : '100%',
                           backgroundColor: STRENGTH_COLORS[pwdStrength],

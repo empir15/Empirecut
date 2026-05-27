@@ -10,6 +10,7 @@
  * - lisibilité (chaque commande est documentée)
  * - maintenabilité (ajouter une opération = ajouter un builder)
  */
+import { Platform } from 'react-native';
 import {
   VIDEO_CODEC,
   AUDIO_CODEC,
@@ -19,7 +20,6 @@ import {
 import { EXPORT_CONFIG } from '../constants/app.constants';
 import type {
   TrimParams,
-  MergeParams,
   AddAudioParams,
   CompressParams,
   ThumbnailParams,
@@ -31,14 +31,15 @@ const toFFmpegPath = (path: string): string =>
 
 const q = (path: string): string => `"${toFFmpegPath(path).replace(/"/g, '\\"')}"`;
 
+// Bitrates pour h264_mediacodec (encodeur matériel Android)
 const VIDEO_BITRATE = {
-  low: '900k',
-  medium: '1800k',
-  high: '3500k',
+  low: '1.5M',     // fichier léger
+  medium: '3.0M',  // bon compromis
+  high: '6.0M',    // haute qualité
 } as const;
 
 const videoEncodeArgs = (quality: 'low' | 'medium' | 'high'): string[] => [
-  `-c:v ${VIDEO_CODEC.H264}`,
+  `-c:v ${VIDEO_CODEC.H264}`,   // h264_mediacodec = encodeur matériel
   `-b:v ${VIDEO_BITRATE[quality]}`,
 ];
 
@@ -58,8 +59,8 @@ export const buildTrimCommand = (params: TrimParams): string => {
   if (reEncode) {
     return [
       FFMPEG_FLAGS.OVERWRITE,
+      `-ss ${startSec}`,        // -ss AVANT -i = seek rapide
       `-i ${q(inputPath)}`,
-      `-ss ${startSec}`,
       `-t ${duration}`,
       ...videoEncodeArgs('medium'),
       `-c:a ${AUDIO_CODEC.AAC}`,
@@ -190,9 +191,11 @@ export const buildExportCommand = (params: ExportParams): string => {
     trimEnd,
     audioPath,
     audioVolume = 0.3,
+    hasAudio = true,
     quality,
     resolution,
     frameRate,
+    textOverlays,
   } = params;
 
   const res = RESOLUTION[resolution];
@@ -211,28 +214,67 @@ export const buildExportCommand = (params: ExportParams): string => {
   // Audio externe
   if (audioPath) {
     cmd.push(`-i ${q(audioPath)}`);
-    cmd.push(
-      `-filter_complex "[0:a]volume=1.0[a0];[1:a]volume=${audioVolume}[a1];[a0][a1]amix=inputs=2:duration=first[aout]"`,
-      `-map 0:v`,
-      `-map "[aout]"`,
-    );
   }
 
-  // Video codec + qualité
+  const filterParts: string[] = [];
+
+  // Video filter chain
+  // 1. Scale et Pad
+  let currentVideoLabel = '[0:v]';
+  filterParts.push(`${currentVideoLabel}scale=${res.width}:${res.height}:force_original_aspect_ratio=decrease,pad=${res.width}:${res.height}:(ow-iw)/2:(oh-ih)/2[v_scaled]`);
+  currentVideoLabel = '[v_scaled]';
+
+  // 2. Overlays de texte
+  if (textOverlays && textOverlays.length > 0) {
+    textOverlays.forEach((ov, index) => {
+      const nextLabel = `[v_txt${index}]`;
+      const textEscaped = ov.text
+        .replace(/'/g, "\\\\'")
+        .replace(/:/g, "\\:");
+      const fontsize = ov.style?.fontSize ?? 24;
+      const fontcolor = ov.style?.color ?? 'white';
+      const x = `(w*${ov.positionX} - text_w/2)`;
+      const y = `(h*${ov.positionY} - text_h/2)`;
+      const enable = `between(t,${ov.start},${ov.end})`;
+
+      // Spécifier la police système sur Android
+      const fontPath = Platform.OS === 'android' ? '/system/fonts/Roboto-Regular.ttf' : 'Arial';
+      const fontParam = Platform.OS === 'android' ? `fontfile='${fontPath}'` : `font='${fontPath}'`;
+
+      filterParts.push(
+        `${currentVideoLabel}drawtext=text='${textEscaped}':fontcolor=${fontcolor}:fontsize=${fontsize}:x=${x}:y=${y}:enable='${enable}':${fontParam}${nextLabel}`
+      );
+      currentVideoLabel = nextLabel;
+    });
+  }
+
+  const finalVideoLabel = currentVideoLabel;
+
+  // Audio mix (si audioPath)
+  let hasAudioFilter = false;
+  if (audioPath) {
+    if (hasAudio) {
+      filterParts.push(`[0:a]volume=1.0[a0];[1:a]volume=${audioVolume}[a1];[a0][a1]amix=inputs=2:duration=first[a_out]`);
+    } else {
+      filterParts.push(`[1:a]volume=${audioVolume}[a_out]`);
+    }
+    hasAudioFilter = true;
+  }
+
+  // Ajouter filter_complex et mapping
+  cmd.push(`-filter_complex "${filterParts.join(';')}"`);
+  cmd.push(`-map "${finalVideoLabel}"`);
+  if (hasAudioFilter) {
+    cmd.push(`-map "[a_out]"`);
+  } else {
+    cmd.push(`-map 0:a?`);
+  }
+
   cmd.push(
     ...videoEncodeArgs(quality),
     `-r ${frameRate}`,
-    `-vf "scale=${res.width}:${res.height}:force_original_aspect_ratio=decrease,pad=${res.width}:${res.height}:(ow-iw)/2:(oh-ih)/2"`,
-  );
-
-  // Audio codec
-  if (!audioPath) {
-    cmd.push(`-c:a ${AUDIO_CODEC.AAC}`, `-b:a ${EXPORT_CONFIG.AUDIO_BITRATE}`);
-  } else {
-    cmd.push(`-c:a ${AUDIO_CODEC.AAC}`, `-b:a ${EXPORT_CONFIG.AUDIO_BITRATE}`);
-  }
-
-  cmd.push(
+    `-c:a ${AUDIO_CODEC.AAC}`,
+    `-b:a ${EXPORT_CONFIG.AUDIO_BITRATE}`,
     FFMPEG_FLAGS.PIXEL_FORMAT,
     FFMPEG_FLAGS.FAST_START,
     FFMPEG_FLAGS.THREADS,
