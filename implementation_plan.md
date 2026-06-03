@@ -272,11 +272,34 @@ CREATE POLICY "user_own_clips" ON clips FOR ALL USING (
 - Liste des projets sur Home
 - Miniatures
 
-### PHASE 7 — Optimisation
-- Mémoire & cache
-- Compression adaptive
-- Lazy loading thumbnails
-- Performance profiling
+### PHASE 7 — Optimisation & Performance (Détails Techniques)
+
+#### 1. Gestion de la Mémoire & Nettoyage du Cache (Temp Files)
+* **Problème** : FFmpeg crée de nombreux fichiers temporaires (`ffmpeg_inputs`, clips trimmés intermédiaires, concat list, et dossiers de vignettes à chaque rendu). Ces fichiers s'accumulent sur le disque.
+* **Solution** :
+  * Créer un utilitaire centralisé `src/utils/cleanup.utils.ts` pour purger les fichiers obsolètes.
+  * Lancer un nettoyage complet automatique au démarrage de l'application (dans `App.tsx` ou via `useEffect` racine) pour supprimer les résidus d'éventuels crashs précédents.
+  * Assurer un nettoyage systématique dans les blocs `finally` lors des opérations de trim, merge et export.
+  * Limiter le dossier `thumbnails` en supprimant les vignettes générées pour les anciens projets.
+
+#### 2. Compression Adaptative & Gestion de l'Espace Disque
+* **Problème** : Les vidéos volumineuses ou le manque d'espace disque provoquent des plantages de FFmpeg ou saturent le téléphone.
+* **Solution** :
+  * Intégrer une vérification d'espace disque disponible via `RNFS.getFSInfo()` avant tout export ou compression.
+  * Si l'espace disque est critique (ex. < 500 Mo), réduire automatiquement la résolution de l'export à `480p` ou la qualité à `low` pour éviter de bloquer l'appareil, tout en affichant un avertissement à l'utilisateur.
+  * Brancher `compressVideoIfNeeded` (de `src/supabase/compression.service.ts`) directement lors de l'importation de vidéos volumineuses (> 50 Mo) dans `useVideo.ts` pour soulager l'éditeur et accélérer les rendus FFmpeg futurs.
+
+#### 3. Optimisation & Lazy Loading des Vignettes de la Timeline
+* **Problème** : Actuellement, le chargement des vignettes génère toutes les vignettes à l'aide d'un filtre `fps=1` fixe. Pour un clip long, cela extrait des frames au début et laisse des vides à la fin. De plus, changer de zoom régénère tout de zéro, ce qui ralentit considérablement la timeline.
+* **Solution** :
+  * **Correction du filtre FPS** : Remplacer `fps=1` par `fps=${count/durationSec}` dans `buildThumbnailCommand` de [commands.ts](file:///c:/Users/teemm/reacte_projets/EmpireCut/src/ffmpeg/commands.ts) pour répartir les vignettes uniformément sur toute la durée du clip.
+  * **Génération à la demande** : Limiter la génération de vignettes dans [TimelineBar.tsx](file:///c:/Users/teemm/reacte_projets/EmpireCut/src/components/timeline/TimelineBar.tsx) aux clips ou segments actuellement dans le viewport (en calculant le scroll et la largeur de l'écran), ou charger les vignettes de manière asynchrone par petits lots.
+  * **Cache robuste** : Optimiser la gestion du cache en mémoire du `ThumbnailService` pour éviter de recréer les fichiers si le même URI et la même durée sont déjà traités.
+
+#### 4. Performance Profiling
+* **Solution** :
+  * Ajouter des logs de chronométrage précis (`console.time` / `console.timeEnd`) autour de chaque commande FFmpeg exécutée pour mesurer la performance réelle sur l'appareil.
+  * Avertir l'utilisateur (via Toast) en cas de lenteur anormale de traitement.
 
 ---
 

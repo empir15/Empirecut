@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, StatusBar, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, StatusBar, ActivityIndicator, Alert } from 'react-native';
+import RNFS from 'react-native-fs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -21,6 +22,20 @@ const ImportScreen: React.FC = () => {
 
   const handleImportGallery = async () => {
     if (isImporting || isCreating) return;
+
+    // Vérification de l'espace disque critique avant import
+    try {
+      const diskInfo = await RNFS.getFSInfo();
+      if (diskInfo.freeSpace < 100 * 1024 * 1024) { // 100 Mo
+        Alert.alert(
+          'Espace disque insuffisant ⚠️',
+          'Il te reste moins de 100 Mo d\'espace. Libère de la place pour pouvoir importer et éditer des vidéos.'
+        );
+        return;
+      }
+    } catch (e) {
+      console.warn('[ImportScreen] Disk check failed:', e);
+    }
 
     const videoMetadata = await importFromGallery();
     if (!videoMetadata) return;

@@ -20,6 +20,8 @@ export interface VideoMetadata {
   hasAudio: boolean;
 }
 
+import type { FilterType, TransitionType } from './editor.types';
+
 export interface Clip {
   id: string;
   uri: string;                 // chemin local
@@ -29,6 +31,8 @@ export interface Clip {
   trimEnd: number;             // secondes depuis le début
   position: number;            // ordre dans la timeline
   volume: number;              // 0.0 → 1.0
+  filter?: FilterType;
+  transition?: TransitionType;
 }
 
 export interface TrimRange {

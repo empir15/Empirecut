@@ -11,14 +11,20 @@
  * StatusBar est gérée dans chaque écran individuellement
  * pour un meilleur contrôle selon le contexte (dark/light).
  */
-import React from 'react';
+import React, { useEffect } from 'react';
 import { StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer } from '@react-navigation/native';
 import { RootNavigator } from './src/navigation/RootNavigator';
+import { cleanupTempFiles } from './src/utils/cleanup.utils';
 
 const App: React.FC = () => {
+  useEffect(() => {
+    // Nettoyage au démarrage (mode non-force pour garder les thumbnails récentes)
+    cleanupTempFiles(false);
+  }, []);
+
   return (
     <GestureHandlerRootView style={styles.root}>
       <SafeAreaProvider>

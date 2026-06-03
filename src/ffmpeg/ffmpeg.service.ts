@@ -38,22 +38,32 @@ const extractUsefulError = (logs: string, maxLength = 1200): string => {
 
 class FFmpegService {
   private activeSessionId: number | null = null;
+  private queue: Promise<any> = Promise.resolve();
 
   /**
-   * Exécute une commande FFmpeg
-   * @param command - La commande FFmpeg complète (sans le binaire 'ffmpeg')
-   * @param onProgress - Callback optionnel pour le suivi de progression
-   * @param totalDurationMs - Durée totale attendue en ms (pour calculer le %)
+   * Exécute une commande FFmpeg (avec file d'attente pour éviter les conflits)
    */
   async execute(
     command: string,
     onProgress?: ProgressCallback,
     totalDurationMs?: number,
   ): Promise<FFmpegResult> {
+    // Utiliser une file d'attente pour s'assurer qu'une seule commande tourne à la fois
+    return this.queue = this.queue.then(() => this._internalExecute(command, onProgress, totalDurationMs));
+  }
+
+  private async _internalExecute(
+    command: string,
+    onProgress?: ProgressCallback,
+    totalDurationMs?: number,
+  ): Promise<FFmpegResult> {
     const startTime = Date.now();
+    const commandType = command.split(' ')[1] || 'unknown';
 
     if (__DEV__) {
-      console.log('[FFmpeg] ▶ Executing:', command);
+      console.log(`[FFmpeg] ▶ Starting ${commandType}...`);
+      console.log(`[FFmpeg] Full command: ffmpeg ${command}`);
+      console.time(`[FFmpeg] ${commandType}`);
     }
 
     try {
@@ -92,6 +102,11 @@ class FFmpegService {
 
       const success = ReturnCode.isSuccess(returnCode);
       this.activeSessionId = null;
+
+      if (__DEV__) {
+        console.timeEnd(`[FFmpeg] ${commandType}`);
+      }
+
       const logTail = extractUsefulError(logs);
       const failureMessage = logTail
         ? `FFmpeg failed with return code ${returnCode.getValue()}: ${logTail}`
@@ -111,6 +126,7 @@ class FFmpegService {
 
       if (__DEV__) {
         console.error('[FFmpeg] ❌ Error:', errorMessage);
+        console.timeEnd(`[FFmpeg] ${commandType}`);
       }
 
       this.activeSessionId = null;

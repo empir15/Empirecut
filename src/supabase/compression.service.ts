@@ -1,5 +1,5 @@
 /**
- * EmpireCut — Compression Service
+ * EmpireCut — Compression Service (Optimisé)
  *
  * Compresse les vidéos importées de la galerie avant l'upload pour économiser :
  * - Le stockage Supabase
@@ -11,8 +11,15 @@ import { ffmpegService } from '../ffmpeg/ffmpeg.service';
 import { buildCompressCommand } from '../ffmpeg/commands';
 
 /**
+ * Seuil de compression (Mo)
+ */
+const COMPRESSION_THRESHOLD_MB = 15;
+
+/**
  * Compresse une vidéo locale avant son upload.
- * Si le fichier d'origine est déjà petit (par ex. < 15 Mo), on ne le compresse pas.
+ * Si le fichier d'origine est déjà petit, on ne le compresse pas.
+ * Si l'espace disque est critique, on augmente la compression.
+ * 
  * @param localUri URI locale du fichier vidéo (file://...)
  * @returns Le chemin d'accès local du fichier compressé (ou l'original si ignoré/erreur) et son statut
  */
@@ -27,24 +34,38 @@ export const compressVideoIfNeeded = async (
     const sizeBytes = typeof fileStat.size === 'string' ? parseInt(fileStat.size, 10) : fileStat.size;
     const originalSizeMb = sizeBytes / (1024 * 1024);
 
-    // Seuil de compression : si la vidéo fait moins de 15 Mo, on évite le traitement pour la rapidité
-    if (originalSizeMb < 15) {
-      console.log(`[Compression] File is small (${originalSizeMb.toFixed(2)} MB). Skipping compression.`);
+    // 2. Vérifier l'espace disque disponible
+    const diskInfo = await RNFS.getFSInfo();
+    const freeSpaceMb = diskInfo.freeSpace / (1024 * 1024);
+
+    // 3. Stratégie de compression adaptative
+    let shouldCompress = originalSizeMb > COMPRESSION_THRESHOLD_MB;
+    let targetQuality: 'low' | 'medium' | 'high' = 'medium';
+
+    // Si l'espace disque est inférieur à 500 Mo, on compresse systématiquement et fortement
+    if (freeSpaceMb < 500) {
+      shouldCompress = true;
+      targetQuality = 'low';
+      console.log(`[Compression] Disk space is low (${freeSpaceMb.toFixed(0)} MB). Forcing high compression.`);
+    }
+
+    if (!shouldCompress) {
+      console.log(`[Compression] Skipping. Size: ${originalSizeMb.toFixed(1)} MB, Free: ${freeSpaceMb.toFixed(0)} MB`);
       return { uri: localUri, compressed: false, originalSizeMb, newSizeMb: originalSizeMb };
     }
 
-    console.log(`[Compression] Compressing large video (${originalSizeMb.toFixed(2)} MB)...`);
+    console.log(`[Compression] Starting (${targetQuality})... Original: ${originalSizeMb.toFixed(1)} MB`);
 
-    // 2. Définir le chemin de sortie temporaire
-    const tempDir = RNFS.TemporaryDirectoryPath;
+    // 4. Définir le chemin de sortie temporaire
+    const tempDir = RNFS.CachesDirectoryPath; // Utiliser le Cache pour les fichiers temporaires
     const filename = cleanPath.split('/').pop() ?? `import_${Date.now()}.mp4`;
     const outputPath = `${tempDir}/compressed_${Date.now()}_${filename}`;
 
-    // 3. Construire et exécuter la commande de compression FFmpeg (720p, bitrate moyen)
+    // 5. Construire et exécuter la commande
     const command = buildCompressCommand({
       inputPath: cleanPath,
       outputPath: outputPath,
-      quality: 'medium',
+      quality: targetQuality,
       resolution: '720p',
     });
 
@@ -53,16 +74,10 @@ export const compressVideoIfNeeded = async (
       throw new Error(result.error ?? 'FFmpeg execution failed');
     }
 
-    // 4. Calculer la taille du fichier compressé
+    // 6. Calculer la taille finale
     const newFileStat = await RNFS.stat(outputPath);
     const newSizeBytes = typeof newFileStat.size === 'string' ? parseInt(newFileStat.size, 10) : newFileStat.size;
     const newSizeMb = newSizeBytes / (1024 * 1024);
-
-    console.log(
-      `[Compression] Success! Size reduced from ${originalSizeMb.toFixed(2)} MB to ${newSizeMb.toFixed(2)} MB (${Math.round(
-        (1 - newSizeMb / originalSizeMb) * 100,
-      )}% reduction)`,
-    );
 
     return {
       uri: `file://${outputPath}`,
@@ -71,8 +86,7 @@ export const compressVideoIfNeeded = async (
       newSizeMb,
     };
   } catch (error) {
-    console.warn('[Compression] Compression skipped after error:', error);
-    // Retourner la vidéo d'origine en cas d'erreur
+    console.warn('[Compression] Skipped after error:', error);
     return { uri: localUri, compressed: false, originalSizeMb: 0, newSizeMb: 0 };
   }
 };

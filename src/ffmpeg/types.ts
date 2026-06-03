@@ -62,9 +62,12 @@ export interface ThumbnailParams {
   inputPath: string;
   outputDir: string;
   count: number;
+  durationSec: number;
   width?: number;
   height?: number;
 }
+
+import type { FilterType, TransitionType } from '../types/editor.types';
 
 export interface ExportParams {
   inputPath: string;
@@ -77,6 +80,8 @@ export interface ExportParams {
   quality: 'low' | 'medium' | 'high';
   resolution: '480p' | '720p' | '1080p';
   frameRate: number;
+  filter?: FilterType;
+  transition?: TransitionType;
   textOverlays?: Array<{
     text: string;
     start: number; // secondes

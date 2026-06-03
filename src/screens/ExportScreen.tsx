@@ -33,9 +33,13 @@ import {
   buildExportCommand,
   buildTrimCommand,
   buildMergeCommand,
+  buildXFadeCommand,
 } from '../ffmpeg/commands';
+import { RESOLUTION } from '../constants/ffmpeg.constants';
 import { formatSeconds } from '../utils/time.utils';
+import { cleanupTempFiles } from '../utils/cleanup.utils';
 import type { ExportQuality, ExportResolution } from '../types/video.types';
+import type { FilterType, TransitionType } from '../types/editor.types';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'Export'>;
 
@@ -128,6 +132,7 @@ export const ExportScreen: React.FC<ExportScreenProps> = () => {
           audioPath: exportMusicTrack ? exportMusicTrack.uri : undefined,
           audioVolume: exportMusicTrack ? exportMusicTrack.volume : undefined,
           hasAudio: clip.metadata.hasAudio,
+          filter: clip.filter,
           textOverlays: exportOverlays,
         });
 
@@ -156,12 +161,17 @@ export const ExportScreen: React.FC<ExportScreenProps> = () => {
           tempClipsPaths.push(tempPath);
 
           // Commande trim avec réencodage pour forcer la synchronisation des formats
-          const trimCommand = buildTrimCommand({
+          // Note: On utilise buildExportCommand ici au lieu de buildTrimCommand 
+          // pour pouvoir appliquer les filtres dès cette étape
+          const trimCommand = buildExportCommand({
             inputPath: await prepareFFmpegInput(clip.uri, `${clip.id}.mp4`),
             outputPath: tempPath,
-            startSec: clip.trimStart,
-            endSec: clip.trimEnd,
-            reEncode: true,
+            trimStart: clip.trimStart,
+            trimEnd: clip.trimEnd,
+            quality: exportSettings.quality,
+            resolution: exportSettings.resolution, // Maintenir la résolution cible
+            frameRate: exportSettings.frameRate,
+            filter: clip.filter,
           });
 
           const clipDurationMs = (clip.trimEnd - clip.trimStart) * 1000;
@@ -180,33 +190,75 @@ export const ExportScreen: React.FC<ExportScreenProps> = () => {
           if (!res.success) throw new Error(res.error || `Erreur trim clip ${i + 1}`);
         }
 
-        // Étape 2 : Concaténer tous les clips temporaires
-        setCurrentStep('Fusion des pistes (Concat)...');
-        const listFilePath = `${RNFS.DocumentDirectoryPath}/concat_list.txt`;
-        
-        // Formater le fichier de liste requis par FFmpeg demuxer concat
-        // Sur Android, les chemins de fichiers doivent être préfixés correctement
-        const listContent = tempClipsPaths
-          .map((path) => `file '${path.replace(/'/g, "'\\''")}'`)
-          .join('\n');
-        
-        await RNFS.writeFile(listFilePath, listContent, 'utf8');
+        // Étape 2 : Concaténer tous les clips temporaires (avec support Transitions)
+        const hasTransitions = clips.some(c => c.transition && c.transition !== 'none');
+        let finalMergedPath = '';
 
-        // On fusionne vers un fichier temporaire intermédiaire
-        const tempMergedPath = `${RNFS.DocumentDirectoryPath}/temp_merged_${Date.now()}.mp4`;
-        const mergeCommand = buildMergeCommand(listFilePath, tempMergedPath);
-        
-        // Lancer la fusion (rapide car sans réencodage)
-        const mergeRes = await ffmpegService.execute(mergeCommand);
-        
-        // Nettoyer le fichier de liste et les clips individuels
-        await RNFS.unlink(listFilePath).catch(() => {});
+        if (!hasTransitions) {
+          // --- Chemin classique : Merge simple (rapide) ---
+          setCurrentStep('Fusion des pistes (Concat)...');
+          const listFilePath = `${RNFS.DocumentDirectoryPath}/concat_list.txt`;
+          const listContent = tempClipsPaths
+            .map((path) => `file '${path.replace(/'/g, "'\\''")}'`)
+            .join('\n');
+          await RNFS.writeFile(listFilePath, listContent, 'utf8');
+
+          const tempMergedPath = `${RNFS.DocumentDirectoryPath}/temp_merged_${Date.now()}.mp4`;
+          const mergeCommand = buildMergeCommand(listFilePath, tempMergedPath);
+          const mergeRes = await ffmpegService.execute(mergeCommand);
+          await RNFS.unlink(listFilePath).catch(() => {});
+          if (!mergeRes.success) throw new Error(mergeRes.error || 'Erreur lors de la fusion');
+          finalMergedPath = tempMergedPath;
+        } else {
+          // --- Chemin complexe : Transitions xfade (plus lent, nécessite réencodage) ---
+          setCurrentStep('Application des transitions...');
+          let currentBase = tempClipsPaths[0];
+          
+          for (let i = 1; i < tempClipsPaths.length; i++) {
+            const nextClip = tempClipsPaths[i];
+            const clipMeta = clips[i];
+            const transition = clipMeta.transition || 'none';
+            const tempOut = `${RNFS.DocumentDirectoryPath}/trans_step_${i}_${Date.now()}.mp4`;
+
+            if (transition === 'none') {
+              // Concaténation simple si pas de transition pour ce clip
+              const listFile = `${RNFS.DocumentDirectoryPath}/list_tmp.txt`;
+              await RNFS.writeFile(listFile, `file '${currentBase}'\nfile '${nextClip}'`, 'utf8');
+              await ffmpegService.execute(buildMergeCommand(listFile, tempOut));
+              await RNFS.unlink(listFile).catch(() => {});
+            } else {
+              // Calculer la durée de la base actuelle pour l'offset
+              const info = await ffmpegService.getMediaInfo(currentBase);
+              const duration1 = parseFloat(info?.duration || '0');
+              
+              const xfadeCmd = buildXFadeCommand({
+                input1: currentBase,
+                input2: nextClip,
+                outputPath: tempOut,
+                transition: transition,
+                duration1,
+                transitionDuration: 1.0, // 1 seconde par défaut
+                resolution: RESOLUTION[exportSettings.resolution],
+              });
+              
+              const res = await ffmpegService.execute(xfadeCmd);
+              if (!res.success) throw new Error(`Échec transition clip ${i}`);
+            }
+
+            // Nettoyage des fichiers intermédiaires
+            if (i > 1) await RNFS.unlink(currentBase).catch(() => {});
+            currentBase = tempOut;
+            setExportProgress(Math.round(80 + (i / tempClipsPaths.length) * 10));
+          }
+          finalMergedPath = currentBase;
+        }
+
+        // Nettoyage des clips individuels trimmés
         for (const tempPath of tempClipsPaths) {
           await RNFS.unlink(tempPath).catch(() => {});
         }
 
-        if (!mergeRes.success) throw new Error(mergeRes.error || 'Erreur lors de la fusion');
-        setExportProgress(85);
+        setExportProgress(90);
 
         // Étape 3 : Appliquer les overlays et la musique de fond sur la vidéo fusionnée
         const hasOverlays = textOverlays && textOverlays.length > 0;
@@ -228,7 +280,7 @@ export const ExportScreen: React.FC<ExportScreenProps> = () => {
           const mergedHasAudio = clips.some((c) => c.metadata.hasAudio);
 
           const finalCommand = buildExportCommand({
-            inputPath: tempMergedPath,
+            inputPath: finalMergedPath,
             outputPath: finalPath,
             quality: exportSettings.quality,
             resolution: exportSettings.resolution,
@@ -239,24 +291,19 @@ export const ExportScreen: React.FC<ExportScreenProps> = () => {
             textOverlays: exportOverlays,
           });
 
-          const finalDurationMs = totalDurationSec * 1000;
           const finalRes = await ffmpegService.execute(
             finalCommand,
             (prog) => {
-              // Reste de la progression (de 85% à 99%)
-              const stepProgress = (prog.percentage / 100) * 14;
-              setExportProgress(Math.min(99, Math.round(85 + stepProgress)));
+              const stepProgress = (prog.percentage / 100) * 9;
+              setExportProgress(Math.min(99, Math.round(90 + stepProgress)));
             },
-            finalDurationMs
+            totalDurationSec * 1000
           );
 
-          // Nettoyer la vidéo fusionnée temporaire
-          await RNFS.unlink(tempMergedPath).catch(() => {});
-
+          await RNFS.unlink(finalMergedPath).catch(() => {});
           if (!finalRes.success) throw new Error(finalRes.error || 'Erreur lors de la finalisation');
         } else {
-          // Aucun effet/musique, on déplace le fichier fusionné directement vers la destination finale
-          await RNFS.moveFile(tempMergedPath, finalPath);
+          await RNFS.moveFile(finalMergedPath, finalPath);
         }
 
         setExportProgress(100);
@@ -265,6 +312,9 @@ export const ExportScreen: React.FC<ExportScreenProps> = () => {
       // Export réussi !
       setExportedVideoPath(finalPath);
       showToast('Vidéo exportée avec succès ! 🚀', 'success');
+
+      // Nettoyage en arrière-plan après export réussi
+      setTimeout(() => cleanupTempFiles(false), 2000);
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Erreur d'export";
       showToast(msg, 'error');

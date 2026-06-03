@@ -54,22 +54,31 @@ export const TimelineBar: React.FC = () => {
 
   const centerOffset = viewportWidth / 2;
 
-  // Chargement des vignettes réelles
+  // Chargement des vignettes réelles avec debounce
   useEffect(() => {
     let active = true;
+    let timeoutId: NodeJS.Timeout;
 
     const loadThumbnails = async () => {
       const thumbsMap: Record<string, string[]> = {};
+      
+      // On ne traite que les clips actuellement dans le store
       for (const clip of clips) {
         if (!active) return;
         try {
-          const clipWidth = (clip.trimEnd - clip.trimStart) * zoom;
-          const numThumbs = Math.max(1, Math.ceil(clipWidth / THUMBNAIL_WIDTH));
+          // Calculer le nombre de vignettes nécessaire pour remplir la largeur du clip au zoom actuel
+          const clipDuration = clip.trimEnd - clip.trimStart;
+          const clipWidth = clipDuration * zoom;
+          
+          // Densité adaptative : 1 vignette tous les 80 pixels environ, max 50 par clip
+          const numThumbs = Math.min(50, Math.max(2, Math.ceil(clipWidth / THUMBNAIL_WIDTH)));
+          
           const list = await thumbnailService.generateThumbnails(
             clip.uri,
             clip.metadata.durationSec,
             numThumbs
           );
+          
           if (list && list.length > 0) {
             thumbsMap[clip.id] = list.map((t) => t.uri);
           }
@@ -77,15 +86,18 @@ export const TimelineBar: React.FC = () => {
           console.error('[TimelineBar] Error generating thumbnails:', err);
         }
       }
+      
       if (active) {
         setThumbnails(thumbsMap);
       }
     };
 
-    loadThumbnails();
+    // Debounce de 300ms pour éviter de spammer FFmpeg pendant un changement de zoom rapide
+    timeoutId = setTimeout(loadThumbnails, 300);
 
     return () => {
       active = false;
+      clearTimeout(timeoutId);
     };
   }, [clips, zoom]);
 

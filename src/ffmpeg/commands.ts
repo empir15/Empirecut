@@ -7,7 +7,7 @@
  *
  * Pourquoi séparer builders et exécution :
  * - testabilité (on peut tester les commandes sans FFmpegKit)
- * - lisibilité (chaque commande est documentée)
+ * - lisibilité (each command is documented)
  * - maintenabilité (ajouter une opération = ajouter un builder)
  */
 import { Platform } from 'react-native';
@@ -25,6 +25,7 @@ import type {
   ThumbnailParams,
   ExportParams,
 } from './types';
+import type { TransitionType } from '../types/editor.types';
 
 const toFFmpegPath = (path: string): string =>
   path.startsWith('file://') ? decodeURI(path.replace('file://', '')) : path;
@@ -45,12 +46,6 @@ const videoEncodeArgs = (quality: 'low' | 'medium' | 'high'): string[] => [
 
 /**
  * Trim vidéo (découper une portion)
- *
- * Mode copy (reEncode=false) : ultra rapide, mais la coupe peut être imprécise
- * car FFmpeg ne peut couper qu'aux keyframes.
- *
- * Mode réencode (reEncode=true) : plus lent, mais coupe au frame exact.
- * Recommandé pour les trims finaux avant export.
  */
 export const buildTrimCommand = (params: TrimParams): string => {
   const { inputPath, outputPath, startSec, endSec, reEncode = false } = params;
@@ -59,7 +54,7 @@ export const buildTrimCommand = (params: TrimParams): string => {
   if (reEncode) {
     return [
       FFMPEG_FLAGS.OVERWRITE,
-      `-ss ${startSec}`,        // -ss AVANT -i = seek rapide
+      `-ss ${startSec}`,
       `-i ${q(inputPath)}`,
       `-t ${duration}`,
       ...videoEncodeArgs('medium'),
@@ -72,10 +67,9 @@ export const buildTrimCommand = (params: TrimParams): string => {
     ].join(' ');
   }
 
-  // Mode copy — rapide, sans réencodage
   return [
     FFMPEG_FLAGS.OVERWRITE,
-    `-ss ${startSec}`,        // -ss AVANT -i = seek rapide
+    `-ss ${startSec}`,
     `-i ${q(inputPath)}`,
     `-t ${duration}`,
     `-c copy`,
@@ -86,8 +80,6 @@ export const buildTrimCommand = (params: TrimParams): string => {
 
 /**
  * Merge plusieurs vidéos (concaténation)
- * Utilise le demuxer concat avec un fichier de liste.
- * Note : le fichier de liste doit être créé avant l'appel.
  */
 export const buildMergeCommand = (
   concatFilePath: string,
@@ -106,7 +98,6 @@ export const buildMergeCommand = (
 
 /**
  * Ajouter une piste audio à une vidéo
- * Mix audio original + musique de fond
  */
 export const buildAddAudioCommand = (params: AddAudioParams): string => {
   const {
@@ -138,7 +129,6 @@ export const buildAddAudioCommand = (params: AddAudioParams): string => {
  */
 export const buildCompressCommand = (params: CompressParams): string => {
   const { inputPath, outputPath, quality, resolution } = params;
-
   const res = resolution ? RESOLUTION[resolution] : null;
 
   const cmd = [
@@ -164,24 +154,61 @@ export const buildCompressCommand = (params: CompressParams): string => {
 };
 
 /**
- * Extraction de thumbnails (images pour la timeline)
- * Génère N images réparties uniformément sur la durée de la vidéo
+ * Extraction de thumbnails
  */
 export const buildThumbnailCommand = (params: ThumbnailParams): string => {
-  const { inputPath, outputDir, count, width = 80, height = 60 } = params;
+  const { inputPath, outputDir, count, durationSec, width = 80, height = 60 } = params;
+  const fps = count / Math.max(durationSec, 1);
 
   return [
     FFMPEG_FLAGS.OVERWRITE,
     `-i ${q(inputPath)}`,
-    `-vf "fps=1,scale=${width}:${height}:force_original_aspect_ratio=decrease"`,
+    `-vf "fps=${fps.toFixed(4)},scale=${width}:${height}:force_original_aspect_ratio=decrease"`,
     `-frames:v ${count}`,
-    `-q:v 5`,                 // qualité JPEG (1=meilleure, 31=pire, 5=bon compromis)
+    `-q:v 5`,
     q(`${outputDir}/thumb_%03d.jpg`),
   ].join(' ');
 };
 
 /**
- * Export final complet (trim + audio + qualité + résolution)
+ * Transition entre deux vidéos (xfade)
+ */
+export const buildXFadeCommand = (params: {
+  input1: string;
+  input2: string;
+  outputPath: string;
+  transition: TransitionType;
+  duration1: number;
+  transitionDuration: number;
+  resolution: { width: number; height: number };
+}): string => {
+  const { input1, input2, outputPath, transition, duration1, transitionDuration, resolution } = params;
+  const offset = Math.max(0, duration1 - transitionDuration);
+  
+  const xfadeMapping: Record<string, string> = {
+    fade: 'fade',
+    wipeleft: 'wipeleft',
+    wiperight: 'wiperight',
+    slideup: 'slideup',
+  };
+
+  const effect = xfadeMapping[transition as string] || 'fade';
+
+  return [
+    FFMPEG_FLAGS.OVERWRITE,
+    `-i ${q(input1)}`,
+    `-i ${q(input2)}`,
+    `-filter_complex [0:v][1:v]xfade=transition=${effect}:duration=${transitionDuration}:offset=${offset},format=yuv420p[v];[0:a][1:a]acrossfade=d=${transitionDuration}[a]`,
+    `-map [v]`,
+    `-map [a]`,
+    ...videoEncodeArgs('medium'),
+    `-c:a ${AUDIO_CODEC.AAC}`,
+    q(outputPath),
+  ].join(' ');
+};
+
+/**
+ * Export final complet (trim + audio + qualité + résolution + filtres + texte)
  */
 export const buildExportCommand = (params: ExportParams): string => {
   const {
@@ -196,13 +223,12 @@ export const buildExportCommand = (params: ExportParams): string => {
     resolution,
     frameRate,
     textOverlays,
+    filter,
   } = params;
 
   const res = RESOLUTION[resolution];
-
   const cmd: string[] = [FFMPEG_FLAGS.OVERWRITE];
 
-  // Trim
   if (trimStart !== undefined) {
     cmd.push(`-ss ${trimStart}`);
   }
@@ -211,33 +237,44 @@ export const buildExportCommand = (params: ExportParams): string => {
     cmd.push(`-t ${trimEnd - trimStart}`);
   }
 
-  // Audio externe
   if (audioPath) {
     cmd.push(`-i ${q(audioPath)}`);
   }
 
   const filterParts: string[] = [];
-
-  // Video filter chain
-  // 1. Scale et Pad
   let currentVideoLabel = '[0:v]';
+
+  // 1. Appliquer le filtre si présent
+  if (filter && filter !== 'none') {
+    let filterCmd = '';
+    switch (filter) {
+      case 'chrome': filterCmd = 'colorlevels=rimax=0.9:gimax=0.9:bimax=0.9'; break;
+      case 'noir': filterCmd = 'format=gray,colorlevels=rimax=0.8:gimax=0.8:bimax=0.8'; break;
+      case 'sepia': filterCmd = 'colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131'; break;
+      case 'vintage': filterCmd = 'curves=preset=vintage,noise=alls=10:allf=t+u'; break;
+      case 'vivid': filterCmd = 'curves=preset=vivid,eq=saturation=1.2'; break;
+    }
+    if (filterCmd) {
+      filterParts.push(`${currentVideoLabel}${filterCmd}[v_filtered]`);
+      currentVideoLabel = '[v_filtered]';
+    }
+  }
+
+  // 2. Scale et Pad
   filterParts.push(`${currentVideoLabel}scale=${res.width}:${res.height}:force_original_aspect_ratio=decrease,pad=${res.width}:${res.height}:(ow-iw)/2:(oh-ih)/2[v_scaled]`);
   currentVideoLabel = '[v_scaled]';
 
-  // 2. Overlays de texte
+  // 3. Overlays de texte
   if (textOverlays && textOverlays.length > 0) {
     textOverlays.forEach((ov, index) => {
       const nextLabel = `[v_txt${index}]`;
-      const textEscaped = ov.text
-        .replace(/'/g, "\\\\'")
-        .replace(/:/g, "\\:");
+      const textEscaped = ov.text.replace(/'/g, "\\\\'").replace(/:/g, "\\:");
       const fontsize = ov.style?.fontSize ?? 24;
       const fontcolor = ov.style?.color ?? 'white';
       const x = `(w*${ov.positionX} - text_w/2)`;
       const y = `(h*${ov.positionY} - text_h/2)`;
       const enable = `between(t,${ov.start},${ov.end})`;
 
-      // Spécifier la police système sur Android
       const fontPath = Platform.OS === 'android' ? '/system/fonts/Roboto-Regular.ttf' : 'Arial';
       const fontParam = Platform.OS === 'android' ? `fontfile='${fontPath}'` : `font='${fontPath}'`;
 
@@ -249,9 +286,8 @@ export const buildExportCommand = (params: ExportParams): string => {
   }
 
   const finalVideoLabel = currentVideoLabel;
-
-  // Audio mix (si audioPath)
   let hasAudioFilter = false;
+
   if (audioPath) {
     if (hasAudio) {
       filterParts.push(`[0:a]volume=1.0[a0];[1:a]volume=${audioVolume}[a1];[a0][a1]amix=inputs=2:duration=first[a_out]`);
@@ -261,11 +297,18 @@ export const buildExportCommand = (params: ExportParams): string => {
     hasAudioFilter = true;
   }
 
-  // Ajouter filter_complex et mapping
-  cmd.push(`-filter_complex "${filterParts.join(';')}"`);
-  cmd.push(`-map "${finalVideoLabel}"`);
+  if (filterParts.length > 0) {
+    // Si on a du texte (avec espaces possible), on met des guillemets, sinon on évite pour la compatibilité
+    const needsQuotes = textOverlays && textOverlays.length > 0;
+    const filterStr = filterParts.join(';');
+    cmd.push(`-filter_complex ${needsQuotes ? `"${filterStr}"` : filterStr}`);
+    cmd.push(`-map ${finalVideoLabel}`);
+  } else {
+    cmd.push(`-map 0:v`);
+  }
+
   if (hasAudioFilter) {
-    cmd.push(`-map "[a_out]"`);
+    cmd.push(`-map [a_out]`);
   } else {
     cmd.push(`-map 0:a?`);
   }

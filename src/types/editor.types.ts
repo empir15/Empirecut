@@ -41,6 +41,23 @@ export interface MusicTrack {
   fadeOut: boolean;
 }
 
+// === Filtres ===
+export type FilterType = 
+  | 'none' 
+  | 'chrome' 
+  | 'noir' 
+  | 'sepia' 
+  | 'vintage' 
+  | 'vivid';
+
+// === Transitions ===
+export type TransitionType = 
+  | 'none' 
+  | 'fade' 
+  | 'wipeleft' 
+  | 'wiperight' 
+  | 'slideup';
+
 // === État de l'éditeur ===
 export type EditorTool =
   | 'none'
@@ -48,6 +65,8 @@ export type EditorTool =
   | 'text'
   | 'music'
   | 'volume'
+  | 'filter'
+  | 'transition'
   | 'export';
 
 export interface EditorState {

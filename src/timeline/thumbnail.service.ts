@@ -25,20 +25,27 @@ class ThumbnailService {
     durationSec: number,
     count: number = VIDEO_CONFIG.THUMBNAIL_COUNT,
   ): Promise<Thumbnail[]> {
-    // Check cache
+    // 1. Vérification du cache en mémoire
     const cacheKey = `${videoUri}_${count}`;
-    if (this.cache.has(cacheKey)) {
-      return this.cache.get(cacheKey)!;
+    const cached = this.cache.get(cacheKey);
+
+    if (cached && cached.length > 0) {
+      // Vérifier si au moins le premier fichier existe encore sur le disque
+      const exists = await RNFS.exists(cached[0].uri);
+      if (exists) return cached;
+      // Sinon, on invalide le cache car les fichiers ont été purgés
+      this.cache.delete(cacheKey);
     }
 
-    // Créer le dossier de sortie physique avec RNFS
-    const outputDir = `${RNFS.DocumentDirectoryPath}/${FFMPEG_DIRS.THUMBNAILS}/${Date.now()}`;
+    // 2. Créer le dossier de sortie dans le CACHE
+    const outputDir = `${RNFS.CachesDirectoryPath}/${FFMPEG_DIRS.THUMBNAILS}/${Date.now()}`;
     await RNFS.mkdir(outputDir);
 
     const command = buildThumbnailCommand({
       inputPath: videoUri,
       outputDir,
       count,
+      durationSec,
       width: VIDEO_CONFIG.THUMBNAIL_WIDTH,
       height: VIDEO_CONFIG.THUMBNAIL_HEIGHT,
     });
@@ -50,7 +57,7 @@ class ThumbnailService {
       return [];
     }
 
-    // Construire la liste de thumbnails
+    // 3. Construire la liste de thumbnails
     const interval = durationSec / count;
     const thumbnails: Thumbnail[] = Array.from({ length: count }, (_, i) => ({
       uri: `${outputDir}/thumb_${String(i + 1).padStart(3, '0')}.jpg`,
@@ -59,7 +66,7 @@ class ThumbnailService {
       height: VIDEO_CONFIG.THUMBNAIL_HEIGHT,
     }));
 
-    // Cache
+    // 4. Mettre en cache
     this.cache.set(cacheKey, thumbnails);
 
     return thumbnails;
