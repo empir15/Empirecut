@@ -46,33 +46,67 @@ export const TimelineBar: React.FC = () => {
 
   const scrollViewRef = useRef<ScrollView>(null);
   const [viewportWidth, setViewportWidth] = useState(SCREEN_WIDTH);
+  const [scrollX, setScrollX] = useState(0);
   const [thumbnails, setThumbnails] = useState<Record<string, string[]>>({});
+  const thumbnailsRef = useRef<Record<string, string[]>>({});
   
+  // Mettre à jour la ref quand l'état change
+  useEffect(() => {
+    thumbnailsRef.current = thumbnails;
+  }, [thumbnails]);
+
   // Réf pour savoir si le scroll actuel provient d'un drag utilisateur
   const isUserScrolling = useRef(false);
   const lastScrollX = useRef(0);
 
   const centerOffset = viewportWidth / 2;
 
-  // Chargement des vignettes réelles avec debounce
+  // Calculer la plage de temps visible dans le viewport
+  const visibleRange = useMemo(() => {
+    const startX = scrollX - centerOffset;
+    const endX = startX + viewportWidth;
+    return {
+      startTime: Math.max(0, startX / zoom),
+      endTime: endX / zoom,
+    };
+  }, [scrollX, viewportWidth, centerOffset, zoom]);
+
+  // Chargement des vignettes réelles avec debounce et filtrage viewport
   useEffect(() => {
     let active = true;
-    let timeoutId: NodeJS.Timeout;
+    let timeoutId: ReturnType<typeof setTimeout>;
 
     const loadThumbnails = async () => {
-      const thumbsMap: Record<string, string[]> = {};
+      const newThumbs: Record<string, string[]> = {};
+      let changed = false;
       
-      // On ne traite que les clips actuellement dans le store
+      // On ne traite que les clips actuellement dans le store et VISIBLES ou proches
       for (const clip of clips) {
         if (!active) return;
+        
+        // Calculer les limites du clip
+        const clipIdx = clips.indexOf(clip);
+        const clipStartTime = clips.slice(0, clipIdx).reduce((acc, c) => acc + (c.trimEnd - c.trimStart), 0);
+        const clipEndTime = clipStartTime + (clip.trimEnd - clip.trimStart);
+
+        // Vérifier si le clip est visible (avec une marge de sécurité d'un demi-viewport)
+        const isVisible = clipEndTime >= visibleRange.startTime - 5 && clipStartTime <= visibleRange.endTime + 5;
+
+        if (!isVisible) continue;
+
         try {
           // Calculer le nombre de vignettes nécessaire pour remplir la largeur du clip au zoom actuel
           const clipDuration = clip.trimEnd - clip.trimStart;
           const clipWidth = clipDuration * zoom;
           
-          // Densité adaptative : 1 vignette tous les 80 pixels environ, max 50 par clip
           const numThumbs = Math.min(50, Math.max(2, Math.ceil(clipWidth / THUMBNAIL_WIDTH)));
           
+          // Ne régénérer que si le nombre de vignettes a changé significativement (utiliser la ref pour comparer)
+          const currentClipThumbs = thumbnailsRef.current[clip.id];
+          if (currentClipThumbs && Math.abs(currentClipThumbs.length - numThumbs) < 2) {
+            continue;
+          }
+
           const list = await thumbnailService.generateThumbnails(
             clip.uri,
             clip.metadata.durationSec,
@@ -80,26 +114,27 @@ export const TimelineBar: React.FC = () => {
           );
           
           if (list && list.length > 0) {
-            thumbsMap[clip.id] = list.map((t) => t.uri);
+            newThumbs[clip.id] = list.map((t) => t.uri);
+            changed = true;
           }
         } catch (err) {
           console.error('[TimelineBar] Error generating thumbnails:', err);
         }
       }
       
-      if (active) {
-        setThumbnails(thumbsMap);
+      if (active && changed) {
+        setThumbnails(prev => ({ ...prev, ...newThumbs }));
       }
     };
 
-    // Debounce de 300ms pour éviter de spammer FFmpeg pendant un changement de zoom rapide
-    timeoutId = setTimeout(loadThumbnails, 300);
+    // Debounce de 400ms pour éviter de spammer FFmpeg pendant le scroll/zoom
+    timeoutId = setTimeout(loadThumbnails, 400);
 
     return () => {
       active = false;
       clearTimeout(timeoutId);
     };
-  }, [clips, zoom]);
+  }, [clips, zoom, visibleRange]);
 
   // Calculer la durée totale de la timeline
   const totalDurationSec = useMemo(() => {
@@ -112,16 +147,18 @@ export const TimelineBar: React.FC = () => {
       // Trouver la position de scroll nécessaire pour centrer la playhead
       const targetScrollX = playheadX;
       scrollViewRef.current.scrollTo({ x: targetScrollX, animated: false });
+      setScrollX(targetScrollX);
     }
   }, [currentTimeMs, playheadX, isPlaying]);
 
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const scrollX = event.nativeEvent.contentOffset.x;
-    lastScrollX.current = scrollX;
+    const x = event.nativeEvent.contentOffset.x;
+    lastScrollX.current = x;
+    setScrollX(x);
 
     // Si le scroll vient de l'utilisateur, on met à jour le temps de lecture
     if (isUserScrolling.current) {
-      const timeSec = scrollX / zoom;
+      const timeSec = x / zoom;
       setCurrentTime(Math.min(totalDurationSec, Math.max(0, timeSec)) * 1000);
     }
   };

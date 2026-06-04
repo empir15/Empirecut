@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
-import { Colors, Spacing, FontSize } from '../../theme';
+import { Colors } from '../../theme';
 import { useEditorStore } from '../../store/editor.store';
 import type { FilterType } from '../../types/editor.types';
 

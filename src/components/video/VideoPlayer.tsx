@@ -62,9 +62,11 @@ export const VideoPlayer: React.FC = () => {
     setPlaying,
     setMuted,
     textOverlays,
+    musicTrack,
   } = useEditorStore();
 
   const videoRef = useRef<VideoRef>(null);
+  const musicRef = useRef<VideoRef>(null);
   const [isLoading, setIsLoading] = useState(false);
   
   // Trackers de seek pour éviter les boucles d'update infinies
@@ -82,15 +84,48 @@ export const VideoPlayer: React.FC = () => {
     return clips.reduce((acc, c) => acc + (c.trimEnd - c.trimStart), 0);
   }, [clips]);
 
-  // Synchroniser le lecteur vidéo si le temps change de l'extérieur (ex: drag timeline)
+  // Synchroniser la musique de fond
+  const musicPlayback = useMemo(() => {
+    if (!musicTrack) return { shouldPlay: false, relativeTime: 0 };
+    
+    const timeSec = currentTimeMs / 1000;
+    // On joue la musique si on est dans sa plage temporelle (par défaut elle commence à 0)
+    const isWithinRange = timeSec >= (musicTrack.startTime || 0);
+    
+    return {
+      shouldPlay: isPlaying && isWithinRange,
+      relativeTime: Math.max(0, timeSec - (musicTrack.startTime || 0))
+    };
+  }, [musicTrack, currentTimeMs, isPlaying]);
+
+  // Synchroniser le lecteur vidéo et audio si le temps change de l'extérieur (ex: drag timeline)
   useEffect(() => {
     if (Math.abs(currentTimeMs - lastSetTime.current) > 250) {
       if (videoRef.current && !isSeeking.current) {
         videoRef.current.seek(relativeTimeSec);
       }
+      if (musicRef.current && musicTrack) {
+        musicRef.current.seek(musicPlayback.relativeTime);
+      }
     }
     lastSetTime.current = currentTimeMs;
-  }, [currentTimeMs, relativeTimeSec]);
+  }, [currentTimeMs, relativeTimeSec, musicPlayback.relativeTime, musicTrack]);
+
+  // Simulation des filtres visuels (approximation pour la prévisualisation)
+  const getFilterStyle = () => {
+    if (!activeClip || !activeClip.filter || activeClip.filter === 'none') return null;
+    
+    switch (activeClip.filter) {
+      case 'chrome': return { backgroundColor: 'rgba(0, 100, 255, 0.15)', opacity: 0.3 };
+      case 'noir': return { backgroundColor: '#000', opacity: 0.4 }; 
+      case 'sepia': return { backgroundColor: '#704214', opacity: 0.25 };
+      case 'vintage': return { backgroundColor: '#f0e68c', opacity: 0.2 };
+      case 'vivid': return { backgroundColor: '#ff0', opacity: 0.08 };
+      default: return null;
+    }
+  };
+
+  const filterStyle = getFilterStyle();
 
   // Si aucun clip, afficher un placeholder premium
   if (!activeClip) {
@@ -150,6 +185,9 @@ export const VideoPlayer: React.FC = () => {
         const firstClip = clips[0];
         videoRef.current.seek(firstClip?.trimStart ?? 0);
       }
+      if (musicRef.current && musicTrack) {
+        musicRef.current.seek(0);
+      }
     }
     setPlaying(!isPlaying);
   };
@@ -164,6 +202,7 @@ export const VideoPlayer: React.FC = () => {
         resizeMode="contain"
         paused={!isPlaying}
         muted={isMuted}
+        volume={activeClip.volume ?? 1.0}
         onProgress={handleVideoProgress}
         onLoad={handleVideoLoad}
         onEnd={handleVideoEnd}
@@ -172,6 +211,28 @@ export const VideoPlayer: React.FC = () => {
         playInBackground={false}
         disableFocus={true}
       />
+
+      {/* Lecteur audio pour la musique de fond (invisible) */}
+      {musicTrack && (
+        <Video
+          ref={musicRef}
+          source={{ uri: musicTrack.uri }}
+          paused={!musicPlayback.shouldPlay}
+          volume={musicTrack.volume}
+          muted={isMuted}
+          repeat={false}
+          playInBackground={false}
+          style={{ width: 0, height: 0 }}
+        />
+      )}
+
+      {/* Filtre visuel (simulation par overlay) */}
+      {filterStyle && (
+        <View 
+          style={[StyleSheet.absoluteFill, filterStyle]} 
+          pointerEvents="none" 
+        />
+      )}
 
       {/* Spinner de chargement */}
       {isLoading && (

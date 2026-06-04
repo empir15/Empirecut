@@ -7,6 +7,7 @@ import { TextTool } from './TextTool';
 import { MusicTool } from './MusicTool';
 import { FilterTool } from './FilterTool';
 import { TransitionTool } from './TransitionTool';
+import { ReorderTool } from './ReorderTool';
 
 export const ToolPanel: React.FC = () => {
   const { activeTool, clips, selectedClipId } = useEditorStore();
@@ -14,7 +15,7 @@ export const ToolPanel: React.FC = () => {
 
   if (activeTool === 'none') return null;
 
-  if (!selectedClip && activeTool !== 'music' && activeTool !== 'text') {
+  if (!selectedClip && activeTool !== 'music' && activeTool !== 'text' && activeTool !== 'reorder') {
     return (
       <View style={styles.panelPlaceholder}>
         <Text style={styles.panelPlaceholderText}>Sélectionne un clip dans la timeline pour l'éditer</Text>
@@ -36,6 +37,8 @@ export const ToolPanel: React.FC = () => {
         return <FilterTool />;
       case 'transition':
         return <TransitionTool />;
+      case 'reorder':
+        return <ReorderTool />;
       default:
         return null;
     }

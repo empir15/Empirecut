@@ -49,7 +49,8 @@ class FFmpegService {
     totalDurationMs?: number,
   ): Promise<FFmpegResult> {
     // Utiliser une file d'attente pour s'assurer qu'une seule commande tourne à la fois
-    return this.queue = this.queue.then(() => this._internalExecute(command, onProgress, totalDurationMs));
+    this.queue = this.queue.then(() => this._internalExecute(command, onProgress, totalDurationMs));
+    return this.queue;
   }
 
   private async _internalExecute(
@@ -63,7 +64,6 @@ class FFmpegService {
     if (__DEV__) {
       console.log(`[FFmpeg] ▶ Starting ${commandType}...`);
       console.log(`[FFmpeg] Full command: ffmpeg ${command}`);
-      console.time(`[FFmpeg] ${commandType}`);
     }
 
     try {
@@ -104,7 +104,7 @@ class FFmpegService {
       this.activeSessionId = null;
 
       if (__DEV__) {
-        console.timeEnd(`[FFmpeg] ${commandType}`);
+        console.log(`[FFmpeg] ✅ ${commandType} finished in ${Date.now() - startTime}ms`);
       }
 
       const logTail = extractUsefulError(logs);
@@ -126,7 +126,7 @@ class FFmpegService {
 
       if (__DEV__) {
         console.error('[FFmpeg] ❌ Error:', errorMessage);
-        console.timeEnd(`[FFmpeg] ${commandType}`);
+        console.log(`[FFmpeg] ❌ ${commandType} failed after ${Date.now() - startTime}ms`);
       }
 
       this.activeSessionId = null;

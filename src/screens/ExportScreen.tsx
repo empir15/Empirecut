@@ -31,7 +31,6 @@ import { useUIStore } from '../store/ui.store';
 import { ffmpegService } from '../ffmpeg/ffmpeg.service';
 import {
   buildExportCommand,
-  buildTrimCommand,
   buildMergeCommand,
   buildXFadeCommand,
 } from '../ffmpeg/commands';
@@ -39,7 +38,6 @@ import { RESOLUTION } from '../constants/ffmpeg.constants';
 import { formatSeconds } from '../utils/time.utils';
 import { cleanupTempFiles } from '../utils/cleanup.utils';
 import type { ExportQuality, ExportResolution } from '../types/video.types';
-import type { FilterType, TransitionType } from '../types/editor.types';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'Export'>;
 
@@ -92,6 +90,22 @@ export const ExportScreen: React.FC<ExportScreenProps> = () => {
 
   const handleStartExport = async () => {
     if (clips.length === 0) return;
+
+    // 0. Vérification de l'espace disque critique avant export
+    try {
+      const diskInfo = await RNFS.getFSInfo();
+      // On demande au moins 200 Mo pour un export serein (fichiers temporaires + final)
+      if (diskInfo.freeSpace < 200 * 1024 * 1024) {
+        Alert.alert(
+          'Espace disque insuffisant ⚠️',
+          'Il te reste moins de 200 Mo d\'espace. Libère de la place pour pouvoir exporter ta vidéo sans erreur.'
+        );
+        return;
+      }
+    } catch (e) {
+      console.warn('[ExportScreen] Disk check failed:', e);
+    }
+
     setIsExporting(true);
     setExportProgress(0);
     setExportedVideoPath(null);
@@ -111,6 +125,9 @@ export const ExportScreen: React.FC<ExportScreenProps> = () => {
         const clip = clips[0];
         const exportMusicTrack = getExportableMusicTrack();
         const inputPath = await prepareFFmpegInput(clip.uri, `${clip.id}.mp4`);
+        const audioPath = exportMusicTrack
+          ? await prepareFFmpegInput(exportMusicTrack.uri, `music_${exportMusicTrack.id}.mp3`)
+          : undefined;
         // Préparer les overlays pour l'export (uniquement pour export single-clip)
         const exportOverlays = textOverlays?.map((o) => ({
           text: o.text,
@@ -129,7 +146,7 @@ export const ExportScreen: React.FC<ExportScreenProps> = () => {
           quality: exportSettings.quality,
           resolution: exportSettings.resolution,
           frameRate: exportSettings.frameRate,
-          audioPath: exportMusicTrack ? exportMusicTrack.uri : undefined,
+          audioPath,
           audioVolume: exportMusicTrack ? exportMusicTrack.volume : undefined,
           hasAudio: clip.metadata.hasAudio,
           filter: clip.filter,
@@ -268,6 +285,10 @@ export const ExportScreen: React.FC<ExportScreenProps> = () => {
         if (hasOverlays || hasMusic) {
           setCurrentStep('Ajout des effets et de la musique...');
           
+          const audioPath = exportMusicTrack
+            ? await prepareFFmpegInput(exportMusicTrack.uri, `music_${exportMusicTrack.id}.mp3`)
+            : undefined;
+
           const exportOverlays = textOverlays?.map((o) => ({
             text: o.text,
             start: o.startTime,
@@ -285,7 +306,7 @@ export const ExportScreen: React.FC<ExportScreenProps> = () => {
             quality: exportSettings.quality,
             resolution: exportSettings.resolution,
             frameRate: exportSettings.frameRate,
-            audioPath: exportMusicTrack ? exportMusicTrack.uri : undefined,
+            audioPath,
             audioVolume: exportMusicTrack ? exportMusicTrack.volume : undefined,
             hasAudio: mergedHasAudio,
             textOverlays: exportOverlays,

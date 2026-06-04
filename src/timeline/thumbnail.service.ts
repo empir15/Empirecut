@@ -73,6 +73,16 @@ class ThumbnailService {
   }
 
   /**
+   * Récupère les thumbnails depuis le cache si elles existent (peu importe le count exact)
+   */
+  getFromCache(videoUri: string): Thumbnail[] | null {
+    for (const [key, value] of this.cache.entries()) {
+      if (key.startsWith(videoUri)) return value;
+    }
+    return null;
+  }
+
+  /**
    * Vide le cache de thumbnails
    */
   clearCache(): void {

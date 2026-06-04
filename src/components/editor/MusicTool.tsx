@@ -1,11 +1,14 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   ScrollView,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
+import { pick, types, isCancel } from '@react-native-documents/picker';
 import Slider from '../common/Slider';
 import { Colors } from '../../theme';
 import { useEditorStore } from '../../store/editor.store';
@@ -18,6 +21,7 @@ const PRESET_MUSIC_TRACKS = [
 
 export const MusicTool: React.FC = () => {
   const { musicTrack, setMusicTrack } = useEditorStore();
+  const [isPicking, setIsPicking] = useState(false);
 
   const handleSelectMusic = (track: typeof PRESET_MUSIC_TRACKS[0]) => {
     if (musicTrack?.id === track.id) {
@@ -34,6 +38,37 @@ export const MusicTool: React.FC = () => {
         fadeIn: true,
         fadeOut: true,
       });
+    }
+  };
+
+  const handlePickFile = async () => {
+    try {
+      setIsPicking(true);
+      const res = await pick({
+        type: [types.audio],
+      });
+
+      const file = res[0];
+      setMusicTrack({
+        id: `local_${Date.now()}`,
+        uri: file.uri,
+        title: file.name || 'Musique locale',
+        artist: 'Fichier local',
+        durationSec: 0, // Sera calculé par FFprobe à l'export si besoin
+        startTime: 0,
+        volume: 0.5,
+        fadeIn: true,
+        fadeOut: true,
+      });
+    } catch (err) {
+      if (isCancel(err)) {
+        // User cancelled
+      } else {
+        Alert.alert('Erreur', 'Impossible de sélectionner le fichier audio');
+        console.error(err);
+      }
+    } finally {
+      setIsPicking(false);
     }
   };
 
@@ -75,7 +110,21 @@ export const MusicTool: React.FC = () => {
         </View>
       )}
 
-      <Text style={styles.sectionTitle}>Bibliothèque</Text>
+      <View style={styles.libraryHeader}>
+        <Text style={styles.sectionTitle}>Bibliothèque</Text>
+        <TouchableOpacity 
+          style={styles.importBtn}
+          onPress={handlePickFile}
+          disabled={isPicking}
+        >
+          {isPicking ? (
+            <ActivityIndicator size="small" color={Colors.accent.primary} />
+          ) : (
+            <Text style={styles.importBtnText}>+ Importer fichier</Text>
+          )}
+        </TouchableOpacity>
+      </View>
+
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.musicList}>
         {PRESET_MUSIC_TRACKS.map((track) => {
           const isSelected = musicTrack?.id === track.id;
@@ -108,13 +157,31 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginBottom: 15,
   },
+  libraryHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
   sectionTitle: {
     color: 'rgba(255, 255, 255, 0.5)',
     fontSize: 12,
     fontWeight: '600',
     textTransform: 'uppercase',
     letterSpacing: 1,
-    marginBottom: 12,
+  },
+  importBtn: {
+    backgroundColor: 'rgba(124, 92, 252, 0.15)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(124, 92, 252, 0.3)',
+  },
+  importBtnText: {
+    color: Colors.accent.primary,
+    fontSize: 12,
+    fontWeight: '700',
   },
   activeMusicCard: {
     backgroundColor: 'rgba(124, 92, 252, 0.1)',

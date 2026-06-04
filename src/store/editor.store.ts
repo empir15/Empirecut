@@ -37,6 +37,7 @@ interface EditorActions {
   addClip: (clip: Clip) => void;
   removeClip: (clipId: string) => void;
   reorderClips: (clips: Clip[]) => void;
+  splitClip: (timeMs: number) => void;
   applyTrim: (op: TrimOperation) => void;
   setSelectedClip: (clipId: string | null) => void;
 
@@ -57,6 +58,7 @@ interface EditorActions {
 
   // Outil actif
   setActiveTool: (tool: EditorTool) => void;
+  setIsEditingTrim: (isEditing: boolean) => void;
 
   // Export
   setExportSettings: (settings: Partial<ExportSettings>) => void;
@@ -79,6 +81,7 @@ const INITIAL_STATE: EditorState = {
   currentTimeMs: 0,
   isPlaying: false,
   isMuted: false,
+  isEditingTrim: false,
   exportSettings: DEFAULT_EXPORT_SETTINGS,
   isDirty: false,
 };
@@ -110,6 +113,53 @@ export const useEditorStore = create<EditorStore>((set) => ({
 
   reorderClips: (clips) =>
     set({ clips: clips.map((c, i) => ({ ...c, position: i })), isDirty: true }),
+
+  splitClip: (timeMs) =>
+    set((state) => {
+      const timeSec = timeMs / 1000;
+      let elapsedBefore = 0;
+      let clipToSplit: Clip | null = null;
+      let clipIndex = -1;
+
+      for (let i = 0; i < state.clips.length; i++) {
+        const c = state.clips[i];
+        const duration = c.trimEnd - c.trimStart;
+        if (timeSec > elapsedBefore && timeSec < elapsedBefore + duration) {
+          clipToSplit = c;
+          clipIndex = i;
+          break;
+        }
+        elapsedBefore += duration;
+      }
+
+      if (!clipToSplit || clipIndex === -1) return state;
+
+      const splitPointRel = timeSec - elapsedBefore;
+      const splitPointAbs = clipToSplit.trimStart + splitPointRel;
+
+      // Création des deux nouveaux clips
+      const clip1: Clip = {
+        ...clipToSplit,
+        id: `split_${Date.now()}_1`,
+        trimEnd: splitPointAbs,
+      };
+
+      const clip2: Clip = {
+        ...clipToSplit,
+        id: `split_${Date.now()}_2`,
+        trimStart: splitPointAbs,
+        transition: 'none', // Pas de transition au milieu d'un split par défaut
+      };
+
+      const newClips = [...state.clips];
+      newClips.splice(clipIndex, 1, clip1, clip2);
+
+      return {
+        clips: newClips.map((c, i) => ({ ...c, position: i })),
+        selectedClipId: clip2.id,
+        isDirty: true,
+      };
+    }),
 
   applyTrim: ({ clipId, newStart, newEnd }) =>
     set((state) => ({
@@ -159,6 +209,8 @@ export const useEditorStore = create<EditorStore>((set) => ({
     set((state) => ({
       activeTool: state.activeTool === tool ? 'none' : tool,
     })),
+
+  setIsEditingTrim: (isEditing) => set({ isEditingTrim: isEditing }),
 
   setExportSettings: (settings) =>
     set((state) => ({

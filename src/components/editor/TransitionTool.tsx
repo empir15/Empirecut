@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
-import { Colors, Spacing, FontSize } from '../../theme';
+import { Colors } from '../../theme';
 import { useEditorStore } from '../../store/editor.store';
 import type { TransitionType } from '../../types/editor.types';
 
@@ -36,7 +36,7 @@ export const TransitionTool: React.FC = () => {
           return (
             <TouchableOpacity
               key={t.id}
-              style={[styles.transBtn, isActive && styles.transBtnActive]}
+              style={styles.transBtn}
               onPress={() => handleSelectTransition(t.id)}
             >
               <View style={[styles.iconBg, isActive && styles.iconBgActive]}>

@@ -40,7 +40,8 @@ export const cleanupTempFiles = async (force = false): Promise<{ success: boolea
           const MAX_AGE_MS = 2 * 24 * 60 * 60 * 1000; // 2 jours
 
           for (const file of files) {
-            if (file.isFile() && (now - file.mtime.getTime() > MAX_AGE_MS)) {
+            const mtime = file.mtime?.getTime() || 0;
+            if (file.isFile() && (mtime > 0) && (now - mtime > MAX_AGE_MS)) {
               await RNFS.unlink(file.path);
               count++;
             }

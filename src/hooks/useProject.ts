@@ -3,6 +3,8 @@ import { useProjectStore } from '../store/project.store';
 import { useAuthStore } from '../store/auth.store';
 import { useUIStore } from '../store/ui.store';
 import * as db from '../supabase/database';
+import { uploadThumbnail } from '../supabase/storage';
+import { thumbnailService } from '../timeline/thumbnail.service';
 import type { ProjectStatus } from '../types/project.types';
 import type { VideoMetadata } from '../types/video.types';
 
@@ -69,7 +71,22 @@ export const useProject = () => {
         return null;
       }
 
-      // 2. Créer le premier clip associé au projet en DB
+      // 2. Générer et uploader une miniature de projet
+      let thumbnailUrl: string | undefined;
+      try {
+        const thumbs = await thumbnailService.generateThumbnails(video.uri, video.durationSec, 1);
+        if (thumbs && thumbs.length > 0) {
+          const uploadedUrl = await uploadThumbnail(thumbs[0].uri, user.id, row.id);
+          if (uploadedUrl) {
+            thumbnailUrl = uploadedUrl;
+            await db.updateProject(row.id, { thumbnail_url: thumbnailUrl });
+          }
+        }
+      } catch (err) {
+        console.warn('[useProject] Thumbnail generation failed:', err);
+      }
+
+      // 3. Créer le premier clip associé au projet en DB
       const clipRow = await db.upsertClip({
         project_id: row.id,
         storage_path: video.uri,
@@ -83,10 +100,11 @@ export const useProject = () => {
         showToast('Erreur création clip', 'error');
       }
 
-      // 3. Ajouter au store de projets
+      // 4. Ajouter au store de projets
       store.addProject({
         id: row.id,
         title: row.title,
+        thumbnailUrl,
         duration: video.durationSec,
         status: 'draft',
         clipsCount: 1,

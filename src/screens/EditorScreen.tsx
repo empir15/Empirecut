@@ -37,6 +37,7 @@ const EditorScreen: React.FC<EditorScreenProps> = ({ route }) => {
     setSelectedClip,
     isDirty,
     markClean,
+    isEditingTrim,
   } = useEditorStore();
 
   const [isLoading, setIsLoading] = useState(true);
@@ -162,49 +163,51 @@ const EditorScreen: React.FC<EditorScreenProps> = ({ route }) => {
       <StatusBar barStyle="light-content" backgroundColor={Colors.background.primary} />
 
       {/* Top Bar */}
-      <View style={styles.topBar}>
-        <TouchableOpacity
-          style={styles.backBtn}
-          onPress={handleBack}
-        >
-          <Text style={styles.backIcon}>←</Text>
-        </TouchableOpacity>
-
-        <View style={styles.topCenterBlock}>
-          <Text style={styles.topTitle} numberOfLines={1}>
-            {projectTitle}
-          </Text>
-          {lastSynced ? (
-            <Text style={styles.syncedLabel}>✓ Sync {lastSynced}</Text>
-          ) : isDirty ? (
-            <Text style={styles.unsavedLabel}>● Non sauvegardé</Text>
-          ) : null}
-        </View>
-
-        <View style={styles.topActions}>
+      {!isEditingTrim && (
+        <View style={styles.topBar}>
           <TouchableOpacity
-            style={[styles.syncBtn, isSyncing && styles.syncBtnActive]}
-            onPress={handleSaveToCloud}
-            disabled={isSyncing || !isDirty}
+            style={styles.backBtn}
+            onPress={handleBack}
           >
-            {isSyncing ? (
-              <ActivityIndicator size="small" color={Colors.accent.primary} />
-            ) : (
-              <Text style={[
-                styles.syncBtnText,
-                (!isDirty) && styles.syncBtnTextDimmed,
-              ]}>☁</Text>
-            )}
+            <Text style={styles.backIcon}>←</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity 
-            style={styles.exportBtn} 
-            onPress={handleExport}
-          >
-            <Text style={styles.exportBtnText}>Exporter</Text>
-          </TouchableOpacity>
+          <View style={styles.topCenterBlock}>
+            <Text style={styles.topTitle} numberOfLines={1}>
+              {projectTitle}
+            </Text>
+            {lastSynced ? (
+              <Text style={styles.syncedLabel}>✓ Sync {lastSynced}</Text>
+            ) : isDirty ? (
+              <Text style={styles.unsavedLabel}>● Non sauvegardé</Text>
+            ) : null}
+          </View>
+
+          <View style={styles.topActions}>
+            <TouchableOpacity
+              style={[styles.syncBtn, isSyncing && styles.syncBtnActive]}
+              onPress={handleSaveToCloud}
+              disabled={isSyncing || !isDirty}
+            >
+              {isSyncing ? (
+                <ActivityIndicator size="small" color={Colors.accent.primary} />
+              ) : (
+                <Text style={[
+                  styles.syncBtnText,
+                  (!isDirty) && styles.syncBtnTextDimmed,
+                ]}>☁</Text>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.exportBtn} 
+              onPress={handleExport}
+            >
+              <Text style={styles.exportBtnText}>Exporter</Text>
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
+      )}
 
       {/* Video Player Area */}
       <View style={styles.playerContainer}>
@@ -217,14 +220,18 @@ const EditorScreen: React.FC<EditorScreenProps> = ({ route }) => {
       </View>
 
       {/* Timeline Section */}
-      <View style={styles.timelineContainer}>
-        <TimelineBar />
-      </View>
+      {!isEditingTrim && (
+        <View style={styles.timelineContainer}>
+          <TimelineBar />
+        </View>
+      )}
 
       {/* Toolbar Area */}
-      <View style={{ paddingBottom: insets.bottom }}>
-        <BottomToolBar />
-      </View>
+      {!isEditingTrim && (
+        <View style={{ paddingBottom: insets.bottom }}>
+          <BottomToolBar />
+        </View>
+      )}
     </View>
   );
 };

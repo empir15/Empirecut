@@ -67,6 +67,7 @@ export type EditorTool =
   | 'volume'
   | 'filter'
   | 'transition'
+  | 'reorder'
   | 'export';
 
 export interface EditorState {
@@ -80,6 +81,7 @@ export interface EditorState {
   currentTimeMs: number;        // position du curseur en ms
   isPlaying: boolean;
   isMuted: boolean;
+  isEditingTrim: boolean;
   exportSettings: ExportSettings;
   isDirty: boolean;             // changements non sauvegardés
 }

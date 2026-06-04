@@ -53,7 +53,7 @@ const ImportScreen: React.FC = () => {
           }
         : videoMetadata;
 
-      setCreatingText('Création du projet sur le cloud...');
+      setCreatingText('Création du projet et miniature...');
       const now = new Date();
       const dateString = now.toLocaleDateString('fr-FR', {
         day: '2-digit',
@@ -62,7 +62,7 @@ const ImportScreen: React.FC = () => {
         minute: '2-digit',
       });
       const defaultTitle = `Projet ${dateString}`;
-      
+
       const projectId = await createProjectWithVideo(defaultTitle, finalMetadata);
       if (projectId) {
         // Rediriger vers l'éditeur avec l'ID du projet créé

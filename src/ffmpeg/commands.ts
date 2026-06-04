@@ -182,7 +182,7 @@ export const buildXFadeCommand = (params: {
   transitionDuration: number;
   resolution: { width: number; height: number };
 }): string => {
-  const { input1, input2, outputPath, transition, duration1, transitionDuration, resolution } = params;
+  const { input1, input2, outputPath, transition, duration1, transitionDuration } = params;
   const offset = Math.max(0, duration1 - transitionDuration);
   
   const xfadeMapping: Record<string, string> = {
